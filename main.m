@@ -4,20 +4,21 @@ clear all;
 run EGM
 
 %% Parameters
-s.Beta = 0.7;     % hyperbolic discounting parameter
-s.Delta=0.96;     % time preference -- discount rate of future actions.
-s.Rho=2;          % CRRA -- higher it is, more risk averse.
-s.n=20;           % number of grid points
-s.G=1.03;         % permanent income growth rate; period-to-period growth
-s.p=0.005;        % probability of losing all income
-s.W= 1.00;        % wage function (constant)
-s.R=1.04;         % interest rate function (constant)
-s.numPds = 99;    % number of periods over which gridpoints are run
-s.Sigma = 0.357;
+s.Beta = 0.7;   % hyperbolic discounting parameter
+s.Delta=0.98;   % time preference -- discount rate of future actions.
+s.Rho=2;        % CRRA -- higher it is, more risk averse.
+s.n=20;         % number of grid points
+s.G=1;          % permanent income growth rate; period-to-period growth
+s.p=0.005;      % probability of losing all income
+s.W= 1.00;      % wage function (constant)
+s.R=1.01;       % interest rate function (constant)
+s.numPds = 99;  % number of periods over which gridpoints are run
+s.Epsilon = 0.05;
 
 % set up triple exponential grid to have more points in higher alpha range
 % when spline needs to be more sensitive to slope changes
 s.AlphaVec=exp(exp(exp(linspace(0.00,log(log(log(10+1)+1)+1),s.n))-1)-1)-1; 
+s.AlphaVec(1) = 1e-4;
 
 %% Exogenous Variables
 
@@ -33,51 +34,49 @@ tranval=[permval/(1-s.p),0.0];   % transitory  shock values
 tranprob=[permprob*(1-s.p),s.p];   % transitory shock probabilities
 
 s.zval = s.W*tranval;
-s.zprob = s.W*tranprob;
+s.zprob = tranprob;
 
-% integrate into a structure as a single structural argument
-% s = struct('Beta',0.7,'Delta',0.96, 'Rho',2,'n',20','G',1.03,'p',0.005,...
-%             'W',1.00,'R',1.04,'numPds',99,'Sigma',0.357,...
-%             'AlphaVec',AlphaVec,'zval',zval,'zprob',zprob
 
 %% Call Functions
 % beta-delta / present biased
 [M,C,L] = EGM.gridpoints(s);
 
-pbias = C(:,end);
+pbias_c = C(:,end);
+pbias_l = L(:,end);
 pbias_m = M(:,end);
-pbias_m_expec = s.R*s.AlphaVec' - s.W .* L(:,end) + s.zval*s.zprob';
+pbias_m_expec = s.R*s.AlphaVec' + s.zval*s.zprob';
 
 % rational
 s.Beta = 1;
 
 [M,C,L] = EGM.gridpoints(s);
 
-rational = C(:,end);
+rational_c = C(:,end);
+rational_l = L(:,end);
 rational_m = M(:,end);
-rational_m_expec = s.R*s.AlphaVec' - s.W .* L(:,end) + s.zval*s.zprob';
+rational_m_expec = s.R*s.AlphaVec' + s.zval*s.zprob';
 
 % Consumption Functions
 figure()
-plot(pbias_m,pbias);
+plot(pbias_m,pbias_c);
 title('Consumption Function');
 xlabel('beginning-of-period resources (m)');
 ylabel('c');
 xlim([0 10]);
 hold on;
-plot(rational_m,rational);
+plot(rational_m,rational_c);
 hold off;
 legend('Present Biased, \beta = 0.7','Rational');
 
-% Consumption as Proportion of Starting Capital
-figure();
-plot(pbias_m,pbias./pbias_m);
-title('Consumption Function');
+% Labor Supply Functions
+figure()
+plot(pbias_m,pbias_l);
+title('Labor Supply Function');
 xlabel('beginning-of-period resources (m)');
-ylabel('share of resources consumed (c/m)');
-xlim([0 10]);
+ylabel('labor supply');
+% xlim([0 10]);
 hold on;
-plot(rational_m,rational./rational_m);
+plot(rational_m,rational_l);
 hold off;
 legend('Present Biased, \beta = 0.7','Rational');
 
@@ -90,7 +89,7 @@ ylabel('expected market resources');
 xlim([0 10]);
 hold on;
 plot( rational_m, rational_m_expec );
-plot(0:length(rational), 0:length(rational),':k');
+plot(0:length(rational_c), 0:length(rational_c),':k');
 hold off;
 legend('Present Biased, \beta = 0.7','Rational', '45 Degree Line', 'location','northwest');
 

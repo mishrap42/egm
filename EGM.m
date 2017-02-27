@@ -1,52 +1,49 @@
 classdef EGM
     methods (Static)
-        function [M,C,Lhat] = gridpoints(s)
+        function [M,C,L] = gridpoints(s)
             % create tracker matrices for each variable. use relationship
             % between C and L derived to create labor vectors.
-            C=(0:s.n-1)'; 
             M=(0:s.n-1)';
-            L=EGM.init_labor(C,M,s);
-            Chat = (0:s.n-1)';
-            Mhat = (0:s.n-1)';
-            Lhat = EGM.init_labor(Chat,Mhat,s);
-            
+            [C,L] = EGM.initialize(M,s);
+            Chat = C;
+            Lhat = L;
+            Mhat = M;
+                        
             for l=1:s.numPds
               % calculate utility from each grid point in AlphaVec, using
               % Euler equation with given values of M, C, and L. "Hat"
               % indicates the vectors under the consumer's expectation that
               % they are rationally allocating resources despite the
               % underlying Beta-Delta discounting process.
-              [util, labor] = EGM.marg_val_end_per(s, Mhat, Chat, Lhat);
-              % set labor to value calculated by interpolation
-              LHatVec = labor;
+              util = EGM.marg_val_end_per(s, Mhat, Chat);
               % calculate the consumption through the inverse utility
               % relationship from the utility calculated above, under an
               % exponetial discounting paradigm
-              ChiHatVec=EGM.inv_util(util,labor,s);
+              ChiHatVec=EGM.inv_util(util,s);
+              % compute labor supply consistent with that level of consumption
+              LHatVec = EGM.calc_labor(ChiHatVec,s);
               % calculate the consumption under beta-delta discounting
-              ChiVec = EGM.inv_util(s.Beta.*util,labor,s);
-              % use alpha grid and chi estimates to create mu vectors from
-              % assumped behaviors.
-              MuVec = s.AlphaVec+ChiVec-s.W*LHatVec;
-              % calculate the ratioanlly adjusted market goods vector
-              % using the "hat" vectors
-              MuHatVec = s.AlphaVec+ChiHatVec-s.W*LHatVec;
-              % calculate the labor supply based on the consumption vector
-              % from the inverse utility on the rationally discounted value
+              ChiVec = EGM.inv_util(s.Beta.*util,s);
+              % compute labor supply consistent with beta-delta consumption choice
               LVec = EGM.calc_labor(ChiVec, s);
+              % use alpha grid and chi estimates to create mu vectors 
+              MuVec = s.AlphaVec + ChiVec + 1 - s.W*LVec;
+              % calculate the rationally adjusted market goods vector
+              % using the "hat" vectors
+              MuHatVec = s.AlphaVec + ChiHatVec + 1 - s.W*LHatVec;              
               
               % append to original matrices
               M=[M, MuVec'];
               C=[C,ChiVec'];
               Chat = [Chat, ChiHatVec'];
-              Mhat=[M, MuHatVec'];
+              Mhat=[Mhat, MuHatVec'];
               Lhat=[Lhat, LHatVec'];
               L=[L,LVec'];
               
-            end;
+            end
         end
 
-        function [V_EUP, labor] =marg_val_end_per(s, M, C, L)
+        function V_EUP =marg_val_end_per(s, M, C)
         % This function tabulates the marginal utility/value function at
         % the end of the period according to the Bellman equation. It
         % entails the use of two other functions, the interpolation
@@ -66,27 +63,23 @@ classdef EGM
                 
                 % interpolate for consumption
                 consumption = EGM.next_per_cons(m, M, C);
-                % interpolate for labor
-                labor = EGM.next_per_labor(m, M, L);
                 % integrate into expected utility
-                V_EUP = V_EUP+s.Delta.*s.R.*EGM.MU(consumption, labor,s).*prob;
+                V_EUP = V_EUP+s.Delta.*s.R.*EGM.MU_c(consumption,s).*prob;
                 
             end;
         end
 
-        function c = inv_util( util, labor, s )
+        function c = inv_util( util, s )
             % calculates the consumption function from a variable denoting
             % the utility of a good
-            c = (util./(s.Sigma.*(1-labor).^((1-s.Sigma)* ...
-                (1-s.Rho)))).^(1/(s.Sigma*(1-s.Rho)-1));
+            c = util.^(-1/s.Rho);
 
         end
 
-        function util = MU( c, labor, s )
+        function util = MU_c( c, s )
             % calculate the marginal utility derived by a consumer from a
             % certain level of consumption and a certain level of labor
-            util = s.Sigma.*c.^(s.Sigma.*(1-s.Rho)-1).* ...
-                (1-labor).^((1-s.Sigma)*(1-s.Rho));
+            util = c.^(-s.Rho);
 
         end
 
@@ -138,28 +131,36 @@ classdef EGM
 
         end
         
-        function util = MU_l( c, labor, s )
+        function util = MU_l(labor, s )
             % calculate the marginal utility derived by a consumer from a
             % certain level of consumption and a certain level of labor
-            util = (1-s.Sigma).*(-c).^s.Sigma.*(1-labor).^(-s.Sigma) ...
-                        .*(c.^s.Sigma .* (1-labor).^(1-s.Sigma)).^(-s.Rho);
+            util = -labor.^(1/s.Epsilon);
         end
         
         function l = calc_labor(c, s)
            % exploits the relationship between labor and consumption to
            % calculate the value of the labor supply from the level of
            % consumption
-           l = 1 - c.*(1-s.Sigma)./(s.W*s.Sigma); 
+           l = (s.W./c.^(s.Rho)).^s.Epsilon; 
         end
         
-        function l = init_labor(c, m, s)
-           % exploits the relationship between labor and consumption to
-           % calculate the value of the labor supply from the level of
-           % consumption
-          l = (c - m)./s.W;
-          if EGM.MU_l(c,l,s)/s.W ~= EGM.MU(c,l,s)
-              l = (c - m)./s.W;
-          end
+        function [c,l] = initialize(m, s)
+            
+            % jointly computes optimal c and l which exhaust m
+            bc = @(c,l,m) m + l.*s.W - 1 - c;
+            foc = @(c,l) EGM.MU_c(c,s) + EGM.MU_l(l,s)./s.W;
+            
+            c = nan(s.n,1);
+            l = nan(s.n,1);
+            
+            for idx = 1:s.n
+                % solve for x = [c l]
+                x0 = [m(idx)+0.5*s.W 0.5];
+                xSol = fsolve(@(x) [bc(x(1),x(2),m(idx)) foc(x(1),x(2))], x0);
+                c(idx) = xSol(1);
+                l(idx) = xSol(2);
+            end
+            
         end
     end
 end
